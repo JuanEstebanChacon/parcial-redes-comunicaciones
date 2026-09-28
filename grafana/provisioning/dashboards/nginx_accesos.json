@@ -1,0 +1,60 @@
+{
+  "uid": "parcial-nginx",
+  "title": "Tráfico del proxy nginx - Parcial 2",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Total de peticiones",
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 5 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "pg_parcial" },
+      "targets": [{ "refId": "A", "format": "table", "rawQuery": true, "editorMode": "code",
+        "rawSql": "SELECT count(*) AS peticiones FROM nginx_accesos WHERE $__timeFilter(ts)" }]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Errores (4xx / 5xx)",
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 5 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "pg_parcial" },
+      "targets": [{ "refId": "A", "format": "table", "rawQuery": true, "editorMode": "code",
+        "rawSql": "SELECT count(*) AS errores FROM nginx_accesos WHERE $__timeFilter(ts) AND status >= 400" }]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Tiempo medio de respuesta (s)",
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 5 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "pg_parcial" },
+      "targets": [{ "refId": "A", "format": "table", "rawQuery": true, "editorMode": "code",
+        "rawSql": "SELECT round(percentile_cont(0.5) WITHIN GROUP (ORDER BY tiempo_resp)::numeric, 4) AS segundos FROM nginx_accesos WHERE $__timeFilter(ts) AND uri NOT LIKE '%/ws'" }]
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "Peticiones por minuto y servicio",
+      "gridPos": { "x": 0, "y": 5, "w": 24, "h": 8 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "pg_parcial" },
+      "targets": [{ "refId": "A", "format": "time_series", "rawQuery": true, "editorMode": "code",
+        "rawSql": "SELECT $__timeGroupAlias(ts, '1m', 0), servicio AS metric, count(*) AS value FROM nginx_accesos WHERE $__timeFilter(ts) GROUP BY 1, 2 ORDER BY 1" }]
+    },
+    {
+      "id": 5, "type": "barchart", "title": "Peticiones por servicio",
+      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 8 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "pg_parcial" },
+      "targets": [{ "refId": "A", "format": "table", "rawQuery": true, "editorMode": "code",
+        "rawSql": "SELECT servicio, count(*) AS peticiones FROM nginx_accesos WHERE $__timeFilter(ts) GROUP BY servicio ORDER BY peticiones DESC" }]
+    },
+    {
+      "id": 6, "type": "barchart", "title": "Códigos de respuesta HTTP",
+      "gridPos": { "x": 12, "y": 13, "w": 12, "h": 8 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "pg_parcial" },
+      "targets": [{ "refId": "A", "format": "table", "rawQuery": true, "editorMode": "code",
+        "rawSql": "SELECT status::text AS codigo, count(*) AS peticiones FROM nginx_accesos WHERE $__timeFilter(ts) GROUP BY status ORDER BY status" }]
+    },
+    {
+      "id": 7, "type": "table", "title": "Últimas 20 peticiones",
+      "gridPos": { "x": 0, "y": 21, "w": 24, "h": 9 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "pg_parcial" },
+      "targets": [{ "refId": "A", "format": "table", "rawQuery": true, "editorMode": "code",
+        "rawSql": "SELECT ts AS hora, ip, servicio, metodo, uri, status, bytes, tiempo_resp FROM nginx_accesos ORDER BY ts DESC LIMIT 20" }]
+    }
+  ]
+}

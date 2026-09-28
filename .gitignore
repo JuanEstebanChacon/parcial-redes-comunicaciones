@@ -1,0 +1,5 @@
+# Credenciales locales: se suben solo como .env.example
+.env
+
+# Copias automáticas de Jupyter
+**/.ipynb_checkpoints/
