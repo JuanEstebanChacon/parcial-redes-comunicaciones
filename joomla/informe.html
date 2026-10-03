@@ -1,0 +1,235 @@
+<p><strong>Estudiantes:</strong> Juan Chacon, Camilo Castro, Joel Colorado · Ingeniería Mecatrónica · Universidad Militar Nueva Granada (UMNG)<br><strong>Docente:</strong> Ing. Andrés Julián Moreno M.Sc.<br><strong>Repositorio:</strong> <a href="https://github.com/JuanEstebanChacon/parcial-redes-comunicaciones" target="_blank" rel="noopener">github.com/JuanEstebanChacon/parcial-redes-comunicaciones</a></p>
+
+<p>Despliegue de cinco servicios orquestados con Docker Compose: un <strong>proxy inverso nginx</strong> como única puerta de entrada, un <strong>CMS Joomla</strong> (esta página) sobre <strong>PostgreSQL 16</strong>, un entorno <strong>Jupyter</strong> con un cuaderno de análisis precargado y <strong>Grafana</strong> con fuente de datos y tablero aprovisionados automáticamente. Todo el tráfico que pasa por nginx queda registrado en un log centralizado que analizan tanto Jupyter como Grafana.</p>
+
+<hr>
+
+<h2>1. Cómo encender los contenedores</h2>
+
+<p>Requisitos: Docker Desktop (Windows, con WSL2) o Docker Engine con Compose v2, y el puerto 80 libre.</p>
+
+<pre><code>git clone https://github.com/JuanEstebanChacon/parcial-redes-comunicaciones.git
+cd parcial-redes-comunicaciones
+cp .env.example .env
+docker compose up -d</code></pre>
+
+<p>En Windows con <em>Símbolo del sistema</em> (cmd) se usa <code>copy .env.example .env</code> en lugar de <code>cp</code>. La primera ejecución descarga las imágenes, construye la imagen de Jupyter e instala Joomla automáticamente; tarda unos minutos. El sistema está listo cuando <code>docker compose ps</code> muestra los cinco contenedores como <code>(healthy)</code>.</p>
+
+<table class="table table-striped">
+<thead><tr><th>Acción</th><th>Comando</th><th>¿Se pierden datos?</th></tr></thead>
+<tbody>
+<tr><td>Encender (crear si hace falta) en segundo plano</td><td><code>docker compose up -d</code></td><td>No</td></tr>
+<tr><td>Ver el estado de los contenedores</td><td><code>docker compose ps</code></td><td>No</td></tr>
+<tr><td>Detener sin borrar nada</td><td><code>docker compose stop</code></td><td>No</td></tr>
+<tr><td>Volver a encender los contenedores detenidos</td><td><code>docker compose start</code></td><td>No</td></tr>
+<tr><td>Apagar y borrar contenedores y redes</td><td><code>docker compose down</code></td><td>No (los volúmenes se conservan)</td></tr>
+<tr><td>Borrar todo, incluidos los volúmenes</td><td><code>docker compose down -v</code></td><td>Sí: base, Joomla, logs y Grafana empiezan de cero</td></tr>
+</tbody>
+</table>
+
+<p>Después de <code>docker compose stop</code>, <code>docker compose ps</code> no muestra nada y <code>docker compose ps -a</code> muestra los cinco contenedores en estado <em>Exited</em>: siguen existiendo, solo están detenidos, y sus datos permanecen.</p>
+
+<h3>Accesos</h3>
+
+<table class="table table-striped">
+<thead><tr><th>Servicio</th><th>URL</th><th>Acceso</th></tr></thead>
+<tbody>
+<tr><td>Joomla (sitio)</td><td>http://localhost/</td><td>Público</td></tr>
+<tr><td>Joomla (administración)</td><td>http://localhost/administrator</td><td><code>admin</code> / <code>AdminParcial2026!</code></td></tr>
+<tr><td>Jupyter</td><td>http://localhost/jupyter/</td><td>Token <code>parcial2026</code></td></tr>
+<tr><td>Grafana</td><td>http://localhost/grafana/</td><td>Tablero visible sin iniciar sesión (rol Viewer). Admin: <code>admin</code> / <code>AdminGrafana2026!</code></td></tr>
+<tr><td>Salud del proxy</td><td>http://localhost/nginx-health</td><td>Devuelve <code>ok</code></td></tr>
+</tbody>
+</table>
+
+<p>Las credenciales son valores de prueba definidos en <code>.env.example</code>. El archivo <code>.env</code> real no se sube al repositorio (está en <code>.gitignore</code>).</p>
+
+<hr>
+
+<h2>2. Puertos</h2>
+
+<table class="table table-striped">
+<thead><tr><th>Servicio</th><th>Puerto interno</th><th>¿Publicado al host?</th><th>Cómo se llega</th></tr></thead>
+<tbody>
+<tr><td><strong>nginx</strong></td><td>80/tcp</td><td><strong>Sí: <code>0.0.0.0:80-&gt;80/tcp</code></strong></td><td><code>http://localhost</code> desde el navegador</td></tr>
+<tr><td>joomla</td><td>80/tcp</td><td>No</td><td>nginx → <code>joomla:80</code></td></tr>
+<tr><td><strong>database</strong></td><td><strong>5432/tcp</strong></td><td><strong>No</strong></td><td>Joomla y Grafana → <code>database:5432</code> por <code>backend_net</code></td></tr>
+<tr><td>jupyter</td><td>8888/tcp</td><td>No</td><td>nginx → <code>jupyter:8888</code></td></tr>
+<tr><td>grafana</td><td>3000/tcp</td><td>No</td><td>nginx → <code>grafana:3000</code></td></tr>
+</tbody>
+</table>
+
+<p><strong>Base de datos:</strong> PostgreSQL escucha en el puerto <strong>5432/tcp</strong>, pero ese puerto solo existe dentro de la red <code>backend_net</code>; no está publicado al computador. Joomla se conecta con <code>database:5432</code>: el DNS interno de Docker traduce el nombre <code>database</code> a la IP del contenedor en <code>172.29.0.0/24</code>. Desde Windows nadie puede conectarse directamente a la base, por seguridad.</p>
+
+<p><strong>Exponer frente a publicar:</strong> en la columna PORTS de <code>docker compose ps</code>, <code>5432/tcp</code> indica un puerto solo interno, mientras que <code>0.0.0.0:80-&gt;80/tcp</code> indica un puerto publicado: el puerto 80 del computador se redirige al 80 del contenedor nginx. Se puede comprobar con <code>docker compose port nginx 80</code> (responde <code>0.0.0.0:80</code>) y <code>docker compose port database 5432</code> (no devuelve ningún puerto).</p>
+
+<hr>
+
+<h2>3. Arquitectura</h2>
+
+<pre><code>                       Navegador (Windows)
+                              |
+                         TCP puerto 80
+                              |
+  +---------------- frontend_net 172.28.0.0/24 ----------------+
+  |                                                            |
+  |   nginx (proxy inverso) --/----------&gt; joomla              |
+  |         |           |---/jupyter/----&gt; jupyter             |
+  |         |           '---/grafana/----&gt; grafana             |
+  |         |                                |        |        |
+  +---------|--------------------------------|--------|--------+
+            |                                |        |
+            | escribe accesos.log            |        |
+            v                                |        |
+     [volumen nginx_logs] --lee--&gt; jupyter   |        |
+            |                                |        |
+            | lee con file_fdw               |        |
+  +---------|------ backend_net 172.29.0.0/24 (internal) ------+
+  |         v                                v        v        |
+  |                  database (PostgreSQL 16) &lt;-------'        |
+  +------------------------------------------------------------+</code></pre>
+
+<table class="table table-striped">
+<thead><tr><th>Contenedor</th><th>Imagen</th><th>Redes</th></tr></thead>
+<tbody>
+<tr><td>nginx</td><td><code>nginx:alpine</code></td><td>frontend_net</td></tr>
+<tr><td>joomla</td><td><code>joomla:latest</code></td><td>frontend_net, backend_net</td></tr>
+<tr><td>database</td><td><code>postgres:16-alpine</code></td><td>backend_net</td></tr>
+<tr><td>jupyter</td><td><code>parcial-jupyter:local</code> (Dockerfile propio)</td><td>frontend_net</td></tr>
+<tr><td>grafana</td><td><code>grafana/grafana:13.2.2</code></td><td>frontend_net, backend_net</td></tr>
+</tbody>
+</table>
+
+<h3>Decisiones de diseño</h3>
+<ul>
+<li><strong>nginx es el único contenedor con puerto publicado.</strong> Los demás solo son alcanzables dentro de las redes de Docker; el único punto de entrada desde el exterior es el proxy, que además registra todo el tráfico.</li>
+<li><strong>La base de datos vive en una red <code>internal: true</code>.</strong> <code>backend_net</code> no tiene salida a internet ni es accesible desde el host; solo entran Joomla y Grafana, que necesitan los datos. Jupyter no tiene acceso a la base.</li>
+<li><strong>Orden de arranque con healthchecks.</strong> Joomla y Grafana esperan a que PostgreSQL esté <code>healthy</code> (<code>pg_isready</code>); nginx espera a que Grafana esté <code>healthy</code>, para no responder con errores 502 durante el arranque.</li>
+<li><strong>Todo se configura por código.</strong> Joomla se autoinstala con variables de entorno, PostgreSQL ejecuta su script de inicio al crearse y Grafana crea su fuente de datos y su tablero por <em>provisioning</em>. No hay pasos manuales.</li>
+</ul>
+
+<hr>
+
+<h2>4. Paso a paso del desarrollo</h2>
+
+<ol>
+<li><strong>Estructura del proyecto y Git.</strong> Se creó la carpeta <code>parcial-redes-comunicaciones</code> con una subcarpeta por servicio (<code>nginx</code>, <code>database/init</code>, <code>jupyter/notebooks</code>, <code>grafana/provisioning</code>). Git se configuró con <code>core.autocrlf input</code> para conservar los finales de línea de Linux que usan los contenedores.</li>
+<li><strong>Variables de entorno.</strong> Todas las credenciales se definieron en <code>.env.example</code>. Quien clona el repositorio lo copia a <code>.env</code> y el <code>docker-compose.yml</code> toma los valores de ahí, de modo que ninguna contraseña queda escrita en el compose.</li>
+<li><strong>Redes.</strong> Se definieron <code>frontend_net</code> (<code>172.28.0.0/24</code>) y <code>backend_net</code> (<code>172.29.0.0/24</code>, <code>internal: true</code>) con subredes fijas para tener un direccionamiento predecible.</li>
+<li><strong>PostgreSQL.</strong> Servicio <code>database</code> con imagen <code>postgres:16-alpine</code>, healthcheck con <code>pg_isready</code> y volumen <code>db_data</code> para que los datos persistan aunque se borre el contenedor.</li>
+<li><strong>Joomla.</strong> Autoinstalación por variables de entorno (sitio, usuario administrador y conexión a <code>database</code>), conectado a las dos redes y con <code>depends_on: service_healthy</code> sobre la base.</li>
+<li><strong>nginx.</strong> Proxy inverso con las rutas <code>/</code>, <code>/jupyter/</code>, <code>/grafana/</code> y <code>/nginx-health</code>; reenvío de cabeceras <code>Host</code>, <code>X-Real-IP</code>, <code>X-Forwarded-For</code> y <code>X-Forwarded-Proto</code>; soporte de WebSocket, y un formato de log propio (<code>accesos.log</code>) que etiqueta cada petición con el servicio que la atendió. Se verificó con <code>curl</code> que respondiera 200 y 404 y que el log registrara las peticiones.</li>
+<li><strong>Jupyter.</strong> Imagen propia a partir de <code>minimal-notebook</code> con pandas y matplotlib, servida bajo <code>/jupyter/</code> (<code>base_url</code>). Se probó el kernel ejecutando una celda: la respuesta llega por WebSocket, lo que confirma que el <em>Upgrade</em> de nginx funciona (en el log aparece el código 101).</li>
+<li><strong>Cuaderno precargado.</strong> Se escribió <code>analisis_datos.ipynb</code>, que lee el log de nginx con pandas y calcula el total de peticiones, peticiones por servicio, códigos HTTP y tiempo medio de respuesta, con gráficas de barras y de peticiones por minuto. Como la carpeta <code>jupyter/notebooks</code> está montada en el contenedor, el cuaderno queda guardado en el repositorio.</li>
+<li><strong>Base de datos lee el log.</strong> El script <code>database/init/01_logs_nginx.sql</code> activa la extensión <code>file_fdw</code> y crea la tabla externa <code>nginx_accesos_raw</code> y la vista <code>nginx_accesos</code>, de modo que el log de nginx se consulta con SQL. PostgreSQL ejecuta el script automáticamente la primera vez que se crea la base.</li>
+<li><strong>Grafana.</strong> Fuente de datos PostgreSQL y tablero de 7 paneles creados por <em>provisioning</em>, servido bajo <code>/grafana/</code>, con acceso anónimo de solo lectura y versión fija (13.2.2). Se le agregó un healthcheck para que nginx espere a que esté listo.</li>
+<li><strong>Repositorio.</strong> Se agregaron <code>.gitignore</code> (excluye <code>.env</code> y las copias automáticas de Jupyter), <code>.gitattributes</code> (finales de línea LF en cualquier computador) y el README. El proyecto se subió a GitHub con GitHub CLI.</li>
+<li><strong>Prueba desde cero.</strong> Se clonó el repositorio en otra carpeta y se borraron volúmenes e imagen de Jupyter (<code>docker compose down -v</code> y <code>docker rmi</code>) para simular un computador nuevo. Con solo <code>docker compose up -d</code> se construyó la imagen, se crearon los volúmenes, se ejecutó el script SQL, Joomla se instaló y los cinco contenedores quedaron <code>(healthy)</code>.</li>
+</ol>
+
+<h3>Problemas encontrados y cómo se resolvieron</h3>
+<ul>
+<li><strong>El script SQL no se ejecutaba:</strong> el archivo se había creado en <code>database/</code> en lugar de <code>database/init/</code>. Se movió a la carpeta correcta y se verificó en los logs la línea <code>running /docker-entrypoint-initdb.d/01_logs_nginx.sql</code>.</li>
+<li><strong>Errores 502 al arrancar:</strong> nginx recibía peticiones antes de que Grafana estuviera listo. Se resolvió con un healthcheck en Grafana y <code>depends_on: service_healthy</code> en nginx.</li>
+<li><strong>nginx no tomaba la configuración nueva:</strong> nginx solo lee su configuración al arrancar, así que tras editar <code>default.conf</code> se recreó el contenedor con <code>docker compose up -d --force-recreate nginx</code>.</li>
+<li><strong>Finales de línea de Windows:</strong> Git para Windows convierte los archivos a CRLF al clonar, lo que podía añadir un carácter invisible a las contraseñas del <code>.env</code>. Se resolvió con <code>.gitattributes</code> forzando LF.</li>
+</ul>
+
+<hr>
+
+<h2>5. Flujo de los datos de monitoreo</h2>
+
+<ol>
+<li><strong>nginx</strong> registra cada petición en <code>/var/log/nginx/accesos.log</code> con un formato propio separado por <code>|</code>:
+<pre><code>fecha|ip|servicio|metodo|uri|codigo|bytes|tiempo
+2026-09-28T02:20:53+00:00|172.28.0.1|jupyter|GET|/jupyter/api/kernels|200|160|0.002</code></pre>
+</li>
+<li>El log se guarda en el volumen <strong><code>nginx_logs</code></strong>, montado en solo lectura en Jupyter y en PostgreSQL.</li>
+<li><strong>Jupyter</strong> lo analiza con pandas en el cuaderno <code>analisis_datos.ipynb</code>.</li>
+<li><strong>PostgreSQL</strong> lo presenta como la vista <code>nginx_accesos</code> mediante <code>file_fdw</code>; el archivo se lee en cada consulta, así que los datos están siempre al día.</li>
+<li><strong>Grafana</strong> consulta esa vista por <code>backend_net</code> y muestra el tablero <em>"Tráfico del proxy nginx – Parcial 2"</em>, que se refresca cada 10 segundos: total de peticiones, errores 4xx/5xx, tiempo de respuesta, peticiones por minuto y servicio, peticiones por servicio, códigos HTTP y las últimas 20 peticiones.</li>
+</ol>
+
+<hr>
+
+<h2>6. Análisis por capas del modelo OSI</h2>
+
+<h3>Capas 1 y 2 – Física y enlace de datos</h3>
+<p>No hay cableado físico entre contenedores: la capa física se virtualiza. En Windows, Docker Desktop ejecuta los contenedores en una máquina virtual ligera de WSL2. Allí, cada red del compose es un <strong>bridge de Linux</strong>, que funciona como un switch virtual. Cada contenedor se conecta al bridge mediante un <strong>par veth</strong> (un "cable" virtual con un extremo dentro del contenedor, <code>eth0</code>, y el otro en el bridge) y recibe su propia <strong>dirección MAC</strong>. Los contenedores de una misma red se comunican con tramas Ethernet a través del bridge; los de redes distintas no comparten dominio de difusión.</p>
+
+<h3>Capa 3 – Red</h3>
+<ul>
+<li><strong>Direccionamiento:</strong> <code>frontend_net</code> = <code>172.28.0.0/24</code> y <code>backend_net</code> = <code>172.29.0.0/24</code>. La dirección <code>.1</code> de cada subred es la <strong>puerta de enlace</strong> (el bridge); por eso en el log las peticiones que llegan desde Windows aparecen con origen <code>172.28.0.1</code>.</li>
+<li><strong>Aislamiento:</strong> <code>backend_net</code> es <code>internal: true</code>; Docker no le crea ruta de salida ni NAT. Se comprobó con <code>docker exec database ping -c 1 -W 2 8.8.8.8</code>, que responde <em>Network unreachable</em>.</li>
+<li><strong>Resolución de nombres:</strong> el DNS interno de Docker (<code>127.0.0.11</code>) traduce el nombre de cada servicio a su IP, por eso la configuración usa nombres: <code>proxy_pass http://joomla:80</code>, <code>JOOMLA_DB_HOST: database</code>, <code>url: database:5432</code>.</li>
+</ul>
+
+<h3>Capa 4 – Transporte</h3>
+<p>Todos los servicios usan <strong>TCP</strong>: 80 (nginx y Apache de Joomla), 5432 (PostgreSQL), 8888 (Jupyter) y 3000 (Grafana). Solo el puerto 80 de nginx está <strong>publicado</strong>: Docker reenvía las conexiones que llegan al puerto 80 del host hacia el puerto 80 del contenedor nginx (redirección de puertos con NAT). Los demás solo están <em>expuestos</em> dentro de las redes de Docker. nginx termina la conexión TCP del cliente y abre una conexión nueva hacia el servicio de destino; el cliente nunca se conecta directamente con Joomla, Jupyter o Grafana.</p>
+
+<h3>Capas 5 y 6 – Sesión y presentación</h3>
+<ul>
+<li><strong>Sesión:</strong> Jupyter (canal del kernel) y Grafana (actualizaciones en vivo) mantienen <strong>sesiones persistentes por WebSocket</strong>; nginx las conserva abiertas con <code>proxy_read_timeout 86400</code>. Joomla y Grafana gestionan además sesiones de usuario con cookies.</li>
+<li><strong>Presentación:</strong> los datos viajan como HTML, JSON y texto plano. El despliegue usa HTTP sin cifrar por ser un laboratorio local; en producción se añadiría TLS en nginx (HTTPS, puerto 443).</li>
+</ul>
+
+<h3>Capa 7 – Aplicación</h3>
+<table class="table table-striped">
+<thead><tr><th>Ruta</th><th>Destino</th></tr></thead>
+<tbody>
+<tr><td><code>/</code></td><td><code>joomla:80</code></td></tr>
+<tr><td><code>/jupyter/</code></td><td><code>jupyter:8888</code> (Jupyter con <code>base_url=/jupyter/</code>)</td></tr>
+<tr><td><code>/grafana/</code></td><td><code>grafana:3000</code> (Grafana con <code>serve_from_sub_path</code>)</td></tr>
+<tr><td><code>/nginx-health</code></td><td>Respuesta directa de nginx (<code>200 ok</code>)</td></tr>
+</tbody>
+</table>
+
+<p>Cabeceras que el proxy reenvía, porque de otro modo los servicios solo verían la IP y el nombre de nginx: <code>Host</code> (dominio y puerto que escribió el usuario), <code>X-Real-IP</code> y <code>X-Forwarded-For</code> (IP real del cliente), <code>X-Forwarded-Proto</code> (protocolo original), y <code>Upgrade</code> y <code>Connection</code>, necesarias para el <strong>HTTP Upgrade a WebSocket</strong>. Estas dos últimas son <em>hop-by-hop</em> y un proxy no las reenvía por defecto; el bloque <code>map $http_upgrade $connection_upgrade</code> decide el valor de <code>Connection</code>.</p>
+
+<table class="table table-striped">
+<thead><tr><th>Código</th><th>Significado en este despliegue</th></tr></thead>
+<tbody>
+<tr><td>200 / 204</td><td>Respuestas correctas (204: la API de Jupyter guardando el espacio de trabajo, sin contenido)</td></tr>
+<tr><td>101</td><td><em>Switching Protocols</em>: la conexión pasó de HTTP a WebSocket (kernel de Jupyter)</td></tr>
+<tr><td>301 / 302</td><td>Redirecciones (<code>/jupyter</code> → <code>/jupyter/</code>, páginas de inicio de sesión)</td></tr>
+<tr><td>304</td><td><em>Not Modified</em>: el navegador usó su copia en caché</td></tr>
+<tr><td>401</td><td>Petición sin autenticación (visitante anónimo de Grafana)</td></tr>
+<tr><td>404</td><td>Recurso inexistente (pruebas a <code>/noexiste</code>)</td></tr>
+<tr><td>499</td><td>Código propio de nginx: el cliente cerró la conexión antes de recibir la respuesta</td></tr>
+<tr><td>502</td><td><em>Bad Gateway</em>: el servicio de destino aún no respondía (arranque de Grafana; se evitó con el healthcheck)</td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2>7. Verificación</h2>
+
+<pre><code>docker compose ps                                  # 5 contenedores (healthy)
+curl -s http://localhost/nginx-health              # ok
+curl -s http://localhost/grafana/api/health        # "database": "ok"
+docker exec nginx tail -n 5 /var/log/nginx/accesos.log
+docker exec database psql -U joomla_user -d joomla_db -c "SELECT servicio, status, count(*) FROM nginx_accesos GROUP BY 1, 2 ORDER BY 1, 2;"
+docker compose logs database                       # contiene: running ... 01_logs_nginx.sql
+docker exec database ping -c 1 -W 2 8.8.8.8        # debe fallar: la base está aislada</code></pre>
+
+<hr>
+
+<h2>8. Estructura del repositorio</h2>
+
+<pre><code>parcial-redes-comunicaciones/
+├── docker-compose.yml                  # Orquestación de los 5 servicios, redes y volúmenes
+├── .env.example                        # Plantilla de credenciales (copiar a .env)
+├── .gitignore / .gitattributes
+├── README.md
+├── nginx/default.conf                  # Rutas del proxy, cabeceras y formato de log
+├── database/init/01_logs_nginx.sql     # file_fdw: expone accesos.log como vista SQL
+├── jupyter/
+│   ├── Dockerfile                      # minimal-notebook + pandas + matplotlib
+│   └── notebooks/analisis_datos.ipynb  # Cuaderno precargado de análisis de tráfico
+└── grafana/provisioning/
+    ├── datasources/datasource.yml      # Conexión a PostgreSQL
+    └── dashboards/
+        ├── dashboards.yml              # Proveedor de tableros
+        └── nginx_accesos.json          # Tablero de tráfico del proxy</code></pre>
+
+<p><strong>Volúmenes:</strong> <code>db_data</code> (datos de PostgreSQL), <code>joomla_data</code> (archivos del sitio), <code>nginx_logs</code> (logs del proxy) y <code>grafana_data</code> (estado de Grafana). <strong>Bind-mounts:</strong> <code>nginx/default.conf</code>, <code>database/init</code>, <code>jupyter/notebooks</code> y <code>grafana/provisioning</code>.</p>
