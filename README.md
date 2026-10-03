@@ -1,6 +1,6 @@
 # Parcial 2 – Comunicaciones: infraestructura multi-contenedor con Docker Compose
 
-**Estudiante:** Juan Chacon · Ingeniería Mecatrónica · Universidad Militar Nueva Granada (UMNG)
+**Estudiantes:** Juan Chacon, Camilo Castro ,Joel Colorado· Ingeniería Mecatrónica · Universidad Militar Nueva Granada (UMNG)
 **Docente:** Ing. Andrés Julián Moreno M.Sc.
 
 Despliegue de cinco servicios orquestados con Docker Compose: un **proxy inverso nginx** como única puerta de entrada, un **CMS Joomla** sobre **PostgreSQL 16**, un entorno **Jupyter** con un cuaderno de análisis precargado y **Grafana** con fuente de datos y tablero aprovisionados automáticamente. Todo el tráfico que pasa por nginx queda registrado en un log centralizado que analizan tanto Jupyter como Grafana.
